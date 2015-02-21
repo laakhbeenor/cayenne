@@ -41,15 +41,15 @@ import org.apache.cayenne.util.Util;
 
 /**
  */
-public class PackageUpdateController extends DefaultsPreferencesController {
+public class PackageUpdateController extends PackagePreferencesController {
 
-    public static final String ALL_CONTROL = 
-            "Set/update package for all ObjEntities and Embeddables (create default class names if missing)";
-    public static final String UNINIT_CONTROL = "Do not override class names with packages";
+    public static final String CONTROL_ENTITIES = "Update ObjEntities";
+    
+    public static final String CONTROL_EMBEDDABLES = "Update Embeddables";
 
     protected boolean clientUpdate;
     
-    protected DefaultsPreferencesView view;
+    protected PackagePreferencesView view;
 
     public PackageUpdateController(ProjectController mediator, DataMap dataMap,
             boolean clientUpdate) {
@@ -61,7 +61,7 @@ public class PackageUpdateController extends DefaultsPreferencesController {
      * Creates and runs the package update dialog.
      */
     public void startupAction() {
-        view = new DefaultsPreferencesView(ALL_CONTROL, UNINIT_CONTROL);
+        view = new PackagePreferencesView(CONTROL_ENTITIES, CONTROL_EMBEDDABLES);
         view.setTitle("Update ObjEntities and Embeddables Java Package");
         initController();
         
@@ -93,45 +93,48 @@ public class PackageUpdateController extends DefaultsPreferencesController {
     }
 
     protected void updatePackage() {
-        boolean doAll = isAllEntities();
-
-        Map<String, String> oldNameEmbeddableToNewName = new HashMap<String,String>();
+    	
+    	Map<String, String> oldNameEmbeddableToNewName = new HashMap<String,String>();
+    	
+        boolean updateEmbeddables = isEmbeddables();
         
-        for (Embeddable embeddable : dataMap.getEmbeddables()) {
-            
-            String oldName = embeddable.getClassName();
-            
-            Pattern p = Pattern.compile("[.]");
-            String[] tokens = p.split(oldName);
-            String className = tokens[tokens.length-1];
-            
-            if (doAll || Util.isEmptyString(oldName) || oldName.indexOf('.') < 0) {
-                EmbeddableEvent e = new EmbeddableEvent(this, embeddable, embeddable.getClassName());
-                String newClassName = getNameWithDefaultPackage(className);
-                oldNameEmbeddableToNewName.put(oldName, newClassName);
-                embeddable.setClassName(newClassName);
-                mediator.fireEmbeddableEvent(e, mediator.getCurrentDataMap());
-            }
+        if(updateEmbeddables){
+	        for (Embeddable embeddable : dataMap.getEmbeddables()) {
+	            
+	            String oldName = embeddable.getClassName();
+	            
+	            Pattern p = Pattern.compile("[.]");
+	            String[] tokens = p.split(oldName);
+	            String className = tokens[tokens.length-1];
+	            
+	            EmbeddableEvent e = new EmbeddableEvent(this, embeddable, embeddable.getClassName());
+	            String newClassName = getNameWithDefaultPackage(className);
+	            oldNameEmbeddableToNewName.put(oldName, newClassName);
+	            embeddable.setClassName(newClassName);
+	            mediator.fireEmbeddableEvent(e, mediator.getCurrentDataMap());
+	        }
         }
         
-        for (ObjEntity entity : dataMap.getObjEntities()) {
-            String oldName = getClassName(entity);
-
-            if (doAll || Util.isEmptyString(oldName) || oldName.indexOf('.') < 0) {
-                String className = extractClassName(Util.isEmptyString(oldName) ? entity
-                        .getName() : oldName);
-                setClassName(entity, getNameWithDefaultPackage(className));
-            }
-            
-            for(ObjAttribute attribute: entity.getAttributes()){
-                if(attribute instanceof EmbeddedAttribute){
-                    if(oldNameEmbeddableToNewName.size()>0 && oldNameEmbeddableToNewName.containsKey(attribute.getType())){
-                        attribute.setType(oldNameEmbeddableToNewName.get(attribute.getType()));
-                        AttributeEvent ev = new AttributeEvent(this, attribute, entity);
-                        mediator.fireObjAttributeEvent(ev);
-                    }
-                }
-            }
+        boolean updateEntities = isEntities();
+        
+        if(updateEntities){
+	        for (ObjEntity entity : dataMap.getObjEntities()) {
+	            String oldName = getClassName(entity);
+	
+	            String className = extractClassName(Util.isEmptyString(oldName) ? entity
+	                        .getName() : oldName);
+	            setClassName(entity, getNameWithDefaultPackage(className));
+	            
+	            for(ObjAttribute attribute: entity.getAttributes()){
+	                if(attribute instanceof EmbeddedAttribute){
+	                    if(oldNameEmbeddableToNewName.size()>0 && oldNameEmbeddableToNewName.containsKey(attribute.getType())){
+	                        attribute.setType(oldNameEmbeddableToNewName.get(attribute.getType()));
+	                        AttributeEvent ev = new AttributeEvent(this, attribute, entity);
+	                        mediator.fireObjAttributeEvent(ev);
+	                    }
+	                }
+	            }
+	        }
         }
 
         view.dispose();
