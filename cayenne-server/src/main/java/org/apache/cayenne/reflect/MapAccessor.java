@@ -16,15 +16,37 @@
  *  specific language governing permissions and limitations
  *  under the License.
  ****************************************************************/
-package org.apache.cayenne.access.loader.filters;
+package org.apache.cayenne.reflect;
+
+import java.util.Map;
 
 /**
  * @since 4.0
  */
-public interface Filter<T> {
+public class MapAccessor implements Accessor {
 
-    boolean isInclude(T obj);
+	private static final long serialVersionUID = 6032801387641617011L;
+	
+	private String propertyName;
 
-    Filter<T> join(Filter<T> filter);
+	public MapAccessor(String propertyName) {
+		this.propertyName = propertyName;
+	}
 
+	@Override
+	public String getName() {
+		return propertyName;
+	}
+
+	@SuppressWarnings("rawtypes")
+	@Override
+	public Object getValue(Object object) {
+		return ((Map) object).get(propertyName);
+	}
+
+	@SuppressWarnings({ "rawtypes", "unchecked" })
+	@Override
+	public void setValue(Object object, Object newValue) {
+		((Map) object).put(propertyName, newValue);
+	}
 }

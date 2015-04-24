@@ -18,13 +18,14 @@
  ****************************************************************/
 package org.apache.cayenne.access;
 
+import java.sql.*;
+import java.util.*;
+import java.util.regex.Pattern;
+
 import org.apache.cayenne.access.loader.DbLoaderConfiguration;
 import org.apache.cayenne.access.loader.DefaultDbLoaderDelegate;
 import org.apache.cayenne.access.loader.ManyToManyCandidateEntity;
-import org.apache.cayenne.access.loader.filters.DbPath;
-import org.apache.cayenne.access.loader.filters.EntityFilters;
-import org.apache.cayenne.access.loader.filters.Filter;
-import org.apache.cayenne.access.loader.filters.FiltersConfig;
+import org.apache.cayenne.access.loader.filters.*;
 import org.apache.cayenne.dba.DbAdapter;
 import org.apache.cayenne.dba.TypesMapping;
 import org.apache.cayenne.map.DataMap;
@@ -44,29 +45,9 @@ import org.apache.cayenne.map.naming.NameCheckers;
 import org.apache.cayenne.map.naming.ObjectNameGenerator;
 import org.apache.cayenne.util.EntityMergeSupport;
 import org.apache.cayenne.util.EqualsBuilder;
+import org.apache.commons.lang3.tuple.Pair;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-
-import java.sql.Connection;
-import java.sql.DatabaseMetaData;
-import java.sql.ResultSet;
-import java.sql.ResultSetMetaData;
-import java.sql.SQLException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.TreeSet;
-
-import static org.apache.cayenne.access.loader.filters.FilterFactory.NULL;
-import static org.apache.cayenne.access.loader.filters.FilterFactory.TRUE;
-import static org.apache.cayenne.access.loader.filters.FilterFactory.include;
 
 /**
  * Utility class that does reverse engineering of the database. It can create
@@ -219,16 +200,22 @@ public class DbLoader {
      * @return
      * @since 4.0
      */
-    public Map<DbPath, Map<String, DbEntity>> getTables(DbLoaderConfiguration config, String[] types)
+    public Map<Pair<String, String>, Map<String, Pair<DbEntity, PatternFilter>>> getTables(DbLoaderConfiguration config, String[] types)
             throws SQLException {
         if (types == null || types.length == 0) {
             types = getDefaultTableTypes();
         }
 
-        Map<DbPath, Map<String, DbEntity>> tables = new HashMap<DbPath, Map<String, DbEntity>>();
+        Map<Pair<String, String>, Map<String, Pair<DbEntity, PatternFilter>>> tables = new HashMap<Pair<String, String>, Map<String, Pair<DbEntity, PatternFilter>>>();
         FiltersConfig filters = config.getFiltersConfig();
-        for (DbPath path : filters.pathsForQueries()) {
-            tables.put(path, getDbEntities(filters, path, types));
+        for (CatalogFilter catalog : filters.catalogs) {
+            for (SchemaFilter schema : catalog.schemas) {
+                Pair<String, String> path = Pair.of(catalog.name, schema.name);
+                Map<String, Pair<DbEntity, PatternFilter>> dbEntities = getDbEntities(filters, path, types);
+                if (!dbEntities.isEmpty()) {
+                    tables.put(path, dbEntities);
+                }
+            }
         }
 
         return tables;
@@ -241,15 +228,15 @@ public class DbLoader {
      * @return Map<TableName, DbEntity>
      * @throws SQLException
      */
-    private Map<String, DbEntity> getDbEntities(FiltersConfig filters, DbPath dbPath, String[] types) throws SQLException {
+    private Map<String, Pair<DbEntity, PatternFilter>> getDbEntities(FiltersConfig filters, Pair<String, String> dbPath, String[] types) throws SQLException {
         if (LOGGER.isDebugEnabled()) {
-            LOGGER.debug("Read tables: catalog=" + dbPath.catalog + ", schema=" + dbPath.schema + ", types="
+            LOGGER.debug("Read tables: catalog=" + dbPath.getKey() + ", schema=" + dbPath.getValue() + ", types="
                     + Arrays.toString(types));
         }
 
-        ResultSet rs = getMetaData().getTables(dbPath.catalog, dbPath.schema, WILDCARD, types);
+        ResultSet rs = getMetaData().getTables(dbPath.getKey(), dbPath.getValue(), WILDCARD, types);
 
-        Map<String, DbEntity> tables = new HashMap<String, DbEntity>();
+        Map<String, Pair<DbEntity, PatternFilter>> tables = new HashMap<String, Pair<DbEntity, PatternFilter>>();
         try {
             while (rs.next()) {
                 // Oracle 9i and newer has a nifty recycle bin feature... but we don't
@@ -270,8 +257,9 @@ public class DbLoader {
                 String schema = rs.getString("TABLE_SCHEM");
                 table.setSchema(schema);
 
-                if (filters.filter(new DbPath(catalog, schema)).tableFilter().isInclude(table)) {
-                    tables.put(name, table);
+                PatternFilter includeTable = filters.tableFilter(catalog, schema).isIncludeTable(table.getName());
+                if (includeTable != null) {
+                    tables.put(name, Pair.of(table, includeTable));
                 }
             }
         } finally {
@@ -282,22 +270,20 @@ public class DbLoader {
 
     /**
      * Loads dbEntities for the specified tables.
-     *
-     * @param map    DataMap to be populated with DbEntities.
+     *  @param map    DataMap to be populated with DbEntities.
      * @param config
      * @param tables The list of org.apache.cayenne.ashwood.dbutil.Table objects
-     *               for which DbEntities must be created.  @return false if loading must be immediately aborted.
      */
-    public List<DbEntity> loadDbEntities(DataMap map, DbLoaderConfiguration config, Map<DbPath, Map<String, DbEntity>> tables) throws SQLException {
+    public List<DbEntity> loadDbEntities(DataMap map, DbLoaderConfiguration config, Map<Pair<String, String>, Map<String, Pair<DbEntity, PatternFilter>>> tables) throws SQLException {
         /** List of db entities to process. */
 
         List<DbEntity> dbEntityList = new ArrayList<DbEntity>();
-        for (Map.Entry<DbPath, Map<String, DbEntity>> tablesMap : tables.entrySet()) {
-            for (DbEntity dbEntity : tablesMap.getValue().values()) {
+        for (Map.Entry<Pair<String, String>, Map<String, Pair<DbEntity, PatternFilter>>> tablesMap : tables.entrySet()) {
+            for (Pair<DbEntity, PatternFilter> dbEntity : tablesMap.getValue().values()) {
 
                 // Check if there already is a DbEntity under such name
                 // if so, consult the delegate what to do
-                DbEntity oldEnt = map.getDbEntity(dbEntity.getName());
+                DbEntity oldEnt = map.getDbEntity(dbEntity.getKey().getName());
                 if (oldEnt != null) {
                     Collection<ObjEntity> oldObjEnt = map.getMappedEntities(oldEnt);
                     if (!oldObjEnt.isEmpty()) {
@@ -313,14 +299,14 @@ public class DbLoader {
                     delegate.dbEntityRemoved(oldEnt);
                 }
 
-                map.addDbEntity(dbEntity);
+                map.addDbEntity(dbEntity.getKey());
 
-                delegate.dbEntityAdded(dbEntity);
+                delegate.dbEntityAdded(dbEntity.getKey());
 
                 // delegate might have thrown this entity out... so check if it is still
                 // around before continuing processing
-                if (map.getDbEntity(dbEntity.getName()) == dbEntity) {
-                    dbEntityList.add(dbEntity);
+                if (map.getDbEntity(dbEntity.getKey().getName()) == dbEntity.getKey()) {
+                    dbEntityList.add(dbEntity.getKey());
                 }
             }
 
@@ -334,8 +320,9 @@ public class DbLoader {
         return dbEntityList;
     }
 
-    private void getPrimaryKeyForTable(Map<String, DbEntity> tables) throws SQLException {
-        for (DbEntity dbEntity : tables.values()) {
+    private void getPrimaryKeyForTable(Map<String, Pair<DbEntity, PatternFilter>> tables) throws SQLException {
+        for (Pair<DbEntity, PatternFilter> pair : tables.values()) {
+            DbEntity dbEntity = pair.getKey();
             ResultSet rs = getMetaData().getPrimaryKeys(dbEntity.getCatalog(), dbEntity.getSchema(), dbEntity.getName());
             try {
                 while (rs.next()) {
@@ -363,8 +350,8 @@ public class DbLoader {
         }
     }
 
-    private void loadDbAttributes(FiltersConfig filters, DbPath path, Map<String, DbEntity> entities) throws SQLException {
-        ResultSet rs = getMetaData().getColumns(path.catalog, path.schema, WILDCARD, WILDCARD);
+    private void loadDbAttributes(FiltersConfig filters, Pair<String, String> path, Map<String, Pair<DbEntity, PatternFilter>> entities) throws SQLException {
+        ResultSet rs = getMetaData().getColumns(path.getKey(), path.getValue(), WILDCARD, WILDCARD);
 
         try {
             Set<String> columns = new HashSet<String>();
@@ -375,21 +362,21 @@ public class DbLoader {
                 // names. E.g. for the system table "WK$_ATTR_MAPPING" columns are
                 // returned twice - as "WK$_ATTR_MAPPING" and "WK$$_ATTR_MAPPING"... Go figure
                 String tableName = rs.getString("TABLE_NAME");
-                DbEntity dbEntity = entities.get(tableName);
-                if (dbEntity == null) {
+                Pair<DbEntity, PatternFilter> pair = entities.get(tableName);
+                if (pair == null) {
                     if (LOGGER.isDebugEnabled()) {
                         LOGGER.debug("Skip column for '" + tableName + "." + rs.getString("COLUMN_NAME") + ".");
                     }
                     continue;
                 }
+                DbEntity dbEntity = pair.getKey();
 
                 DbAttribute attr = loadDbAttribute(columns, rs);
                 attr.setEntity(dbEntity);
-                Filter<DbAttribute> filter = filters.filter(new DbPath(dbEntity.getCatalog(), dbEntity.getSchema(), dbEntity.getName())).columnFilter();
-                if (!filter.isInclude(attr)) {
+                if (!pair.getValue().isInclude(attr.getName())) {
                     if (LOGGER.isDebugEnabled()) {
                         LOGGER.debug("Skip column for '" + attr.getEntity().getName() + "." + attr.getName()
-                                + "' (Path: " + path + "; Filter: " + filter + ")");
+                                + "' (Path: " + path + "; Filter: " + pair.getValue() + ")");
                     }
                     continue;
                 }
@@ -496,14 +483,14 @@ public class DbLoader {
         return new EntityMergeSupport(map, nameGenerator, !creatingMeaningfulPK);
     }
 
-    protected void loadDbRelationships(DbLoaderConfiguration config, Map<DbPath, Map<String, DbEntity>> tables) throws SQLException {
+    protected void loadDbRelationships(DbLoaderConfiguration config, Map<Pair<String, String>, Map<String, Pair<DbEntity, PatternFilter>>> tables) throws SQLException {
         if (config.isSkipRelationshipsLoading()) {
             return;
         }
 
         // Get all the foreign keys referencing this table
 
-        for (Map.Entry<DbPath, Map<String, DbEntity>> pathEntry : tables.entrySet()) {
+        for (Map.Entry<Pair<String, String>, Map<String, Pair<DbEntity, PatternFilter>>> pathEntry : tables.entrySet()) {
             Map<String, Set<ExportedKey>> keys = loadExportedKeys(config, pathEntry.getKey(), pathEntry.getValue());
             for (Map.Entry<String, Set<ExportedKey>> entry : keys.entrySet()) {
                 if (LOGGER.isDebugEnabled()) {
@@ -516,13 +503,13 @@ public class DbLoader {
                     throw new IllegalStateException();
                 }
 
-                DbEntity pkEntity = pathEntry.getValue().get(key.getPKTableName());
+                DbEntity pkEntity = pathEntry.getValue().get(key.getPKTableName()).getKey();
                 if (pkEntity == null) {
                     skipRelationLog(key, key.getPKTableName());
                     continue;
                 }
 
-                DbEntity fkEntity = pathEntry.getValue().get(key.getFKTableName());
+                DbEntity fkEntity = pathEntry.getValue().get(key.getFKTableName()).getKey();
                 if (fkEntity == null) {
                     skipRelationLog(key, key.getFKTableName());
                     continue;
@@ -609,17 +596,18 @@ public class DbLoader {
         }
     }
 
-    private Map<String, Set<ExportedKey>> loadExportedKeys(DbLoaderConfiguration config, DbPath dbPath, Map<String, DbEntity> tables) throws SQLException {
+    private Map<String, Set<ExportedKey>> loadExportedKeys(DbLoaderConfiguration config, Pair<String, String> dbPath, Map<String, Pair<DbEntity, PatternFilter>> tables) throws SQLException {
         Map<String, Set<ExportedKey>> keys = new HashMap<String, Set<ExportedKey>>();
 
-        for (DbEntity dbEntity : tables.values()) {
+        for (Pair<DbEntity, PatternFilter> pair : tables.values()) {
+            DbEntity dbEntity = pair.getKey();
             if (!delegate.dbRelationship(dbEntity)) {
                 continue;
             }
 
             ResultSet rs;
             try {
-                rs = getMetaData().getExportedKeys(dbPath.catalog, dbPath.schema, dbEntity.getName());
+                rs = getMetaData().getExportedKeys(dbPath.getKey(), dbPath.getValue(), dbEntity.getName());
             } catch (SQLException cay182Ex) {
                 // Sybase-specific - the line above blows on VIEWS, see CAY-182.
                 LOGGER.info("Error getting relationships for '" + dbPath + "', ignoring. "
@@ -631,13 +619,14 @@ public class DbLoader {
                 while (rs.next()) {
                     ExportedKey key = ExportedKey.extractData(rs);
 
-                    DbEntity fkEntity = tables.get(key.getFKTableName());
-                    if (fkEntity == null) {
+                    Pair<DbEntity, PatternFilter> p = tables.get(key.getFKTableName());
+                    if (p == null) {
                         skipRelationLog(key, key.getFKTableName());
                         continue;
                     }
-                    DbPath path = new DbPath(fkEntity.getCatalog(), fkEntity.getSchema(), fkEntity.getName());
-                    if (!config.getFiltersConfig().filter(path).tableFilter().isInclude(fkEntity)) {
+
+                    DbEntity fkEntity = p.getKey();
+                    if (config.getFiltersConfig().tableFilter(fkEntity.getCatalog(), fkEntity.getSchema()).isIncludeTable(fkEntity.getName()) == null) {
                         continue;
                     }
 
@@ -747,8 +736,8 @@ public class DbLoader {
     public DataMap loadDataMapFromDB(String schemaPattern, String tablePattern, DataMap dataMap) throws SQLException {
 
         DbLoaderConfiguration configuration = new DbLoaderConfiguration();
-        configuration.setFiltersConfig(new FiltersConfig(new EntityFilters(new DbPath(null, schemaPattern),
-                include(tablePattern), TRUE, NULL)));
+        configuration.setFiltersConfig(FiltersConfig.create(null, schemaPattern,
+                TableFilter.include(tablePattern), PatternFilter.INCLUDE_NOTHING));
 
         load(dataMap, configuration);
         return dataMap;
@@ -769,22 +758,12 @@ public class DbLoader {
         dataMap.clear();
 
         DbLoaderConfiguration config = new DbLoaderConfiguration();
-        config.setFiltersConfig(new FiltersConfig(new EntityFilters(
-                new DbPath(null, schemaPattern), transformPatternToFilter(tablePattern), TRUE, NULL)));
+        config.setFiltersConfig(FiltersConfig.create(null, schemaPattern,
+                TableFilter.include(tablePattern), PatternFilter.INCLUDE_NOTHING));
         config.setTableTypes(tableTypes);
 
         load(dataMap, config);
         return dataMap;
-    }
-
-    private Filter<String> transformPatternToFilter(String tablePattern) {
-        Filter<String> table;
-        if (tablePattern == null) {
-            table = NULL;
-        } else {
-            table = include(tablePattern.replaceAll("%", ".*"));
-        }
-        return table;
     }
 
     /**
@@ -797,7 +776,7 @@ public class DbLoader {
     public void load(DataMap dataMap, DbLoaderConfiguration config) throws SQLException {
         LOGGER.info("Schema loading...");
 
-        Map<DbPath, Map<String, DbEntity>> tables = getTables(config, config.getTableTypes());
+        Map<Pair<String, String>, Map<String, Pair<DbEntity, PatternFilter>>> tables = getTables(config, config.getTableTypes());
         List<DbEntity> entities = loadDbEntities(dataMap, config, tables);
 
         if (entities != null) {
@@ -844,8 +823,8 @@ public class DbLoader {
     @Deprecated
     public void loadProceduresFromDB(String schemaPattern, String namePattern, DataMap dataMap) throws SQLException {
         DbLoaderConfiguration configuration = new DbLoaderConfiguration();
-        configuration.setFiltersConfig(new FiltersConfig(new EntityFilters(
-                new DbPath(null, schemaPattern), NULL, NULL, include(namePattern))));
+        configuration.setFiltersConfig(FiltersConfig.create(null, schemaPattern,
+                TableFilter.everything(), new PatternFilter().include(namePattern)));
 
         loadProcedures(dataMap, configuration);
     }
@@ -879,28 +858,35 @@ public class DbLoader {
     }
 
     private void loadProceduresColumns(DbLoaderConfiguration config, Map<String, Procedure> procedures) throws SQLException {
-        for (DbPath dbPath : config.getFiltersConfig().pathsForQueries()) {
-            ResultSet columnsRS = getMetaData().getProcedureColumns(dbPath.catalog, dbPath.schema, null, null);
-            try {
-                while (columnsRS.next()) {
 
-                    String schema = columnsRS.getString("PROCEDURE_SCHEM");
-                    String name = columnsRS.getString("PROCEDURE_NAME");
-                    String key = (schema == null ? "" : schema + '.') + name;
-                    Procedure procedure = procedures.get(key);
-                    if (procedure == null) {
-                        continue;
-                    }
-
-                    ProcedureParameter column = loadProcedureParams(columnsRS, key, procedure);
-                    if (column == null) {
-                        continue;
-                    }
-                    procedure.addCallParameter(column);
-                }
-            } finally {
-                columnsRS.close();
+        for (CatalogFilter catalog : config.getFiltersConfig().catalogs) {
+            for (SchemaFilter schema : catalog.schemas) {
+                loadProceduresColumns(procedures, catalog.name, schema.name);
             }
+        }
+    }
+
+    private void loadProceduresColumns(Map<String, Procedure> procedures, String catalog, String schema) throws SQLException {
+        ResultSet columnsRS = getMetaData().getProcedureColumns(catalog, schema, null, null);
+        try {
+            while (columnsRS.next()) {
+
+                String s = columnsRS.getString("PROCEDURE_SCHEM");
+                String name = columnsRS.getString("PROCEDURE_NAME");
+                String key = (s == null ? "" : s + '.') + name;
+                Procedure procedure = procedures.get(key);
+                if (procedure == null) {
+                    continue;
+                }
+
+                ProcedureParameter column = loadProcedureParams(columnsRS, key, procedure);
+                if (column == null) {
+                    continue;
+                }
+                procedure.addCallParameter(column);
+            }
+        } finally {
+            columnsRS.close();
         }
     }
 
@@ -966,21 +952,23 @@ public class DbLoader {
         Map<String, Procedure> procedures = new HashMap<String, Procedure>();
 
         FiltersConfig filters = config.getFiltersConfig();
-        for (DbPath dbPath : filters.pathsForQueries()) {
-            if (filters.filter(dbPath).procedureFilter().equals(NULL)) {
-                continue;
-            }
+        for (CatalogFilter catalog : filters.catalogs) {
+            for (SchemaFilter schema : catalog.schemas) {
+                if (filters.proceduresFilter(catalog.name, schema.name).isEmpty()) {
+                    continue;
+                }
 
-            procedures.putAll(loadProcedures(filters, dbPath));
+                procedures.putAll(loadProcedures(filters, catalog.name, schema.name));
+            }
         }
 
         return procedures;
     }
 
-    private Map<String, Procedure> loadProcedures(FiltersConfig filters, DbPath dbPath) throws SQLException {
+    private Map<String, Procedure> loadProcedures(FiltersConfig filters, String catalog, String schema) throws SQLException {
         Map<String, Procedure> procedures = new HashMap<String, Procedure>();
         // get procedures
-        ResultSet rs = getMetaData().getProcedures(dbPath.catalog, dbPath.schema, WILDCARD);
+        ResultSet rs = getMetaData().getProcedures(catalog, schema, WILDCARD);
         try {
             while (rs.next()) {
 
@@ -989,8 +977,8 @@ public class DbLoader {
                 procedure.setCatalog(rs.getString("PROCEDURE_CAT"));
                 procedure.setSchema(rs.getString("PROCEDURE_SCHEM"));
 
-                if (filters.filter(new DbPath(procedure.getCatalog(), procedure.getSchema()))
-                        .procedureFilter().isInclude(procedure)) {
+                if (filters.proceduresFilter(procedure.getCatalog(), procedure.getSchema())
+                        .isInclude(procedure.getName())) {
                     LOGGER.info("skipping Cayenne PK procedure: " + name);
                     continue;
                 }

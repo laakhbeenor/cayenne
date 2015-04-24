@@ -18,6 +18,24 @@
  */
 package org.apache.cayenne.merge;
 
+import org.apache.cayenne.CayenneRuntimeException;
+import org.apache.cayenne.access.DataNode;
+import org.apache.cayenne.access.DbLoader;
+import org.apache.cayenne.access.loader.DbLoaderConfiguration;
+import org.apache.cayenne.access.loader.LoggingDbLoaderDelegate;
+import org.apache.cayenne.access.loader.filters.FiltersConfig;
+import org.apache.cayenne.dba.DbAdapter;
+import org.apache.cayenne.map.Attribute;
+import org.apache.cayenne.map.DataMap;
+import org.apache.cayenne.map.DbAttribute;
+import org.apache.cayenne.map.DbEntity;
+import org.apache.cayenne.map.DbJoin;
+import org.apache.cayenne.map.DbRelationship;
+import org.apache.cayenne.map.DetectedDbEntity;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+
+import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Types;
@@ -29,24 +47,6 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
 
-import javax.sql.DataSource;
-
-import org.apache.cayenne.CayenneRuntimeException;
-import org.apache.cayenne.access.DataNode;
-import org.apache.cayenne.access.DbLoader;
-import org.apache.cayenne.access.loader.DbLoaderConfiguration;
-import org.apache.cayenne.access.loader.DefaultDbLoaderDelegate;
-import org.apache.cayenne.access.loader.filters.DbPath;
-import org.apache.cayenne.access.loader.filters.FiltersConfig;
-import org.apache.cayenne.dba.DbAdapter;
-import org.apache.cayenne.map.Attribute;
-import org.apache.cayenne.map.DataMap;
-import org.apache.cayenne.map.DbAttribute;
-import org.apache.cayenne.map.DbEntity;
-import org.apache.cayenne.map.DbJoin;
-import org.apache.cayenne.map.DbRelationship;
-import org.apache.cayenne.map.DetectedDbEntity;
-
 /**
  * Traverse a {@link DataNode} and a {@link DataMap} and create a group of
  * {@link MergerToken}s to alter the {@link DataNode} data store to match the
@@ -54,6 +54,8 @@ import org.apache.cayenne.map.DetectedDbEntity;
  * 
  */
 public class DbMerger {
+
+    private static final Log LOGGER = LogFactory.getLog(DbMerger.class);
 
     private final MergerFactory factory;
     
@@ -110,7 +112,7 @@ public class DbMerger {
     private Collection<DbEntity> filter(DataMap existing, FiltersConfig filtersConfig) {
         Collection<DbEntity> existingFiltered = new LinkedList<DbEntity>();
         for (DbEntity entity : existing.getDbEntities()) {
-            if (filtersConfig.filter(DbPath.build(entity)).tableFilter().isInclude(entity)) {
+            if (filtersConfig.tableFilter(entity.getCatalog(), entity.getSchema()).isIncludeTable(entity.getName()) != null) {
                 existingFiltered.add(entity);
             }
         }
@@ -122,7 +124,7 @@ public class DbMerger {
         try {
             conn = dataSource.getConnection();
 
-            return new DbLoader(conn, adapter, new DefaultDbLoaderDelegate()).load(config);
+            return new DbLoader(conn, adapter, new LoggingDbLoaderDelegate(LOGGER)).load(config);
         } catch (SQLException e) {
             throw new CayenneRuntimeException("Can't doLoad dataMap from db.", e);
         } finally {

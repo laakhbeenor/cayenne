@@ -16,20 +16,10 @@
  *  specific language governing permissions and limitations
  *  under the License.
  ****************************************************************/
-package org.apache.cayenne.access.loader;
+package org.apache.cayenne.datafactory;
 
 /**
- * @since 4.0.
+ * @since 4.0
  */
-public class BooleanNameFilter implements NameFilter {
-    private final boolean isInclude;
-
-    public BooleanNameFilter(boolean isInclude) {
-        this.isInclude = isInclude;
-    }
-
-    @Override
-    public boolean isIncluded(String string) {
-        return this.isInclude;
-    }
+public class CombinedValueProvider {
 }
