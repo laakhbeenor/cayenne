@@ -11,6 +11,8 @@ import javax.swing.JDialog;
 import javax.swing.JPanel;
 import javax.swing.JRadioButton;
 
+import org.apache.cayenne.modeler.ModelerPreferences;
+
 import com.jgoodies.forms.builder.PanelBuilder;
 import com.jgoodies.forms.layout.CellConstraints;
 import com.jgoodies.forms.layout.FormLayout;
@@ -31,10 +33,10 @@ public class PackagePreferencesView extends JDialog {
 
     protected void initView(String ControlEntities, String ControlEmbeddables) {
         updateEntities = new JCheckBox(ControlEntities);
-        updateEntities.setSelected(true);
+        if(ModelerPreferences.ENTITIES) updateEntities.setSelected(true);
 
         updateEmbeddables = new JCheckBox(ControlEmbeddables);
-        updateEmbeddables.setSelected(true);
+        if(ModelerPreferences.EMBEDDABLES) updateEmbeddables.setSelected(true);
 
         JCheckBoxMenuItem checkBoxMenu = new JCheckBoxMenuItem();
         checkBoxMenu.add(updateEntities);

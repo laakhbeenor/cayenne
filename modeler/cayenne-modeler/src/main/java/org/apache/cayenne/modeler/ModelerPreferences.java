@@ -62,6 +62,12 @@ public class ModelerPreferences implements PreferenceChangeListener {
     public static final int COMBOBOX_MAX_VISIBLE_SIZE = 12;
 
     /**
+     * Choices of user in updating java package
+     */
+    public static boolean ENTITIES = true;
+    public static boolean EMBEDDABLES = true;
+    
+    /**
      * Returns Cayenne preferences singleton.
      */
     public static Preferences getPreferences() {

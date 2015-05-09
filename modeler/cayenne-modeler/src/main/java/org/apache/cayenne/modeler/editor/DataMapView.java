@@ -70,6 +70,7 @@ public class DataMapView extends JPanel {
     protected TextAdapter defaultCatalog;
     protected TextAdapter defaultSchema;
     protected TextAdapter defaultPackage;
+    protected TextAdapter defaultListenerPackage;
     protected TextAdapter defaultSuperclass;
     protected JCheckBox quoteSQLIdentifiers;
 
@@ -78,6 +79,7 @@ public class DataMapView extends JPanel {
     protected JButton updateDefaultPackage;
     protected JButton updateDefaultSuperclass;
     protected JButton updateDefaultLockType;
+    protected JButton updateDefaultListenerPackage;
 
     // client stuff
     protected JCheckBox clientSupport;
@@ -133,7 +135,15 @@ public class DataMapView extends JPanel {
                 setDefaultPackage(text);
             }
         };
+        
+        updateDefaultListenerPackage = new JButton("Update...");
+        defaultListenerPackage = new TextAdapter(new JTextField()) {
 
+            protected void updateModel(String text) {
+                setDefaultListenerPackage(text);
+            }
+        };
+        
         updateDefaultSuperclass = new JButton("Update...");
         defaultSuperclass = new TextAdapter(new JTextField()) {
 
@@ -182,6 +192,10 @@ public class DataMapView extends JPanel {
                 "Java Package:",
                 defaultPackage.getComponent(),
                 updateDefaultPackage);
+        builder.append(
+                "Listener Java Package:",
+                defaultListenerPackage.getComponent(),
+                updateDefaultListenerPackage);
         builder.append(
                 "Custom Superclass:",
                 defaultSuperclass.getComponent(),
@@ -278,6 +292,13 @@ public class DataMapView extends JPanel {
                 updateDefaultPackage();
             }
         });
+        
+        updateDefaultListenerPackage.addActionListener(new ActionListener() {
+
+            public void actionPerformed(ActionEvent e) {
+                updateDefaultListenerPackage();
+            }
+        });
 
         updateDefaultSuperclass.addActionListener(new ActionListener() {
 
@@ -336,6 +357,7 @@ public class DataMapView extends JPanel {
         // init default fields
         defaultLockType.setSelected(map.getDefaultLockType() != ObjEntity.LOCK_TYPE_NONE);
         defaultPackage.setText(map.getDefaultPackage());
+        defaultListenerPackage.setText(map.getDefaultListenerPackage());
         defaultCatalog.setText(map.getDefaultCatalog());
         defaultSchema.setText(map.getDefaultSchema());
         defaultSuperclass.setText(map.getDefaultSuperclass());
@@ -422,6 +444,32 @@ public class DataMapView extends JPanel {
         // update class generation preferences
         eventController.getDataMapPreferences("").setSuperclassPackage(
                 newDefaultPackage,
+                DataMapDefaults.DEFAULT_SUPERCLASS_PACKAGE_SUFFIX);
+
+        eventController.fireDataMapEvent(new DataMapEvent(this, dataMap));
+    }
+    
+    void setDefaultListenerPackage(String newDefaultListenerPackage) { 
+        DataMap dataMap = eventController.getCurrentDataMap();
+
+        if (dataMap == null) {
+            return;
+        }
+
+        if (newDefaultListenerPackage != null && newDefaultListenerPackage.trim().length() == 0) {
+            newDefaultListenerPackage = null;
+        }
+
+        String oldPackage = dataMap.getDefaultListenerPackage();
+        if (Util.nullSafeEquals(newDefaultListenerPackage, oldPackage)) {
+            return;
+        }
+
+        dataMap.setDefaultListenerPackage(newDefaultListenerPackage);
+
+        // update class generation preferences
+        eventController.getDataMapPreferences("").setSuperclassPackage( ///tu poprawic
+                newDefaultListenerPackage,
                 DataMapDefaults.DEFAULT_SUPERCLASS_PACKAGE_SUFFIX);
 
         eventController.fireDataMapEvent(new DataMapEvent(this, dataMap));
@@ -624,6 +672,18 @@ public class DataMapView extends JPanel {
         if (dataMap.getObjEntities().size() > 0 || dataMap.getEmbeddables().size() > 0) {
             new PackageUpdateController(eventController, dataMap, false).startupAction();
         }
+    }
+    
+    void updateDefaultListenerPackage() {
+        DataMap dataMap = eventController.getCurrentDataMap();
+
+        if (dataMap == null) {
+            return;
+        }
+
+        if (dataMap.getObjEntities().size() > 0 || dataMap.getEmbeddables().size() > 0) {
+            new PackageUpdateController(eventController, dataMap, false).startupAction(); //tu poprawic
+        } 
     }
 
     void updateDefaultClientPackage() {

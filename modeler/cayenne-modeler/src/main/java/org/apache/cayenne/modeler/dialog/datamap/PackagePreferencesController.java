@@ -1,6 +1,7 @@
 package org.apache.cayenne.modeler.dialog.datamap;
 
 import org.apache.cayenne.map.DataMap;
+import org.apache.cayenne.modeler.ModelerPreferences;
 import org.apache.cayenne.modeler.ProjectController;
 import org.apache.cayenne.modeler.util.CayenneController;
 
@@ -21,10 +22,14 @@ public abstract class PackagePreferencesController extends CayenneController {
     }
 
     public boolean isEntities() {
-        return ((PackagePreferencesView)getView()).getUpdateEntities().isSelected();
+        boolean isEntities = ((PackagePreferencesView)getView()).getUpdateEntities().isSelected();
+        ModelerPreferences.ENTITIES = isEntities;
+        return isEntities;
     }
 
     public boolean isEmbeddables() {
-        return ((PackagePreferencesView)getView()).getUpdateEmbeddables().isSelected();
+        boolean isEmbeddables = ((PackagePreferencesView)getView()).getUpdateEmbeddables().isSelected();
+        ModelerPreferences.EMBEDDABLES = isEmbeddables;
+        return isEmbeddables;
     }
 }

@@ -100,6 +100,13 @@ public class DataMap implements Serializable, ConfigurationNode, XMLSerializable
 	 * @since 1.1
 	 */
 	public static final String DEFAULT_PACKAGE_PROPERTY = "defaultPackage";
+	
+	/**
+	 * Defines the name of the property for default Java class package.
+	 * 
+	 * @since 1.1
+	 */
+	public static final String DEFAULT_LISTENER_PACKAGE_PROPERTY = "defaultListenerPackage";
 
 	/**
 	 * Defines the name of the property for default Java superclass.
@@ -132,6 +139,7 @@ public class DataMap implements Serializable, ConfigurationNode, XMLSerializable
 	protected String defaultCatalog;
 	protected String defaultSchema;
 	protected String defaultPackage;
+	protected String defaultListenerPackage;
 
 	protected String defaultSuperclass;
 	protected int defaultLockType;
@@ -254,6 +262,7 @@ public class DataMap implements Serializable, ConfigurationNode, XMLSerializable
 
 		Object lockType = properties.get(DEFAULT_LOCK_TYPE_PROPERTY);
 		Object packageName = properties.get(DEFAULT_PACKAGE_PROPERTY);
+		Object packageListenerName = properties.get(DEFAULT_LISTENER_PACKAGE_PROPERTY);
 		Object catalog = properties.get(DEFAULT_CATALOG_PROPERTY);
 		Object schema = properties.get(DEFAULT_SCHEMA_PROPERTY);
 		Object superclass = properties.get(DEFAULT_SUPERCLASS_PROPERTY);
@@ -266,6 +275,7 @@ public class DataMap implements Serializable, ConfigurationNode, XMLSerializable
 				: ObjEntity.LOCK_TYPE_NONE;
 
 		this.defaultPackage = (packageName != null) ? packageName.toString() : null;
+		this.defaultListenerPackage = (packageListenerName != null) ? packageListenerName.toString() : null;
 		this.quotingSQLIdentifiers = (quoteSqlIdentifier != null) ? "true".equalsIgnoreCase(quoteSqlIdentifier
 				.toString()) : false;
 		this.defaultSchema = (schema != null) ? schema.toString() : null;
@@ -336,6 +346,10 @@ public class DataMap implements Serializable, ConfigurationNode, XMLSerializable
 
 		if (!Util.isEmptyString(defaultPackage)) {
 			encoder.printProperty(DEFAULT_PACKAGE_PROPERTY, defaultPackage);
+		}
+		
+		if (!Util.isEmptyString(defaultListenerPackage)) {
+			encoder.printProperty(DEFAULT_LISTENER_PACKAGE_PROPERTY, defaultListenerPackage);
 		}
 
 		if (!Util.isEmptyString(defaultCatalog)) {
@@ -1181,6 +1195,21 @@ public class DataMap implements Serializable, ConfigurationNode, XMLSerializable
 		this.defaultPackage = defaultPackage;
 	}
 
+	/**
+	 * @since 1.1
+	 */
+	public String getDefaultListenerPackage() {
+		return defaultListenerPackage;
+	}
+
+	/**
+	 * @since 1.1
+	 */
+	public void setDefaultListenerPackage(String defaultListenerPackage) {
+		this.defaultListenerPackage = defaultListenerPackage;
+	}
+
+	
 	/**
 	 * @since 1.1
 	 */
