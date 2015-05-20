@@ -33,6 +33,7 @@ import org.apache.cayenne.modeler.action.CopyAttributeRelationshipAction;
 import org.apache.cayenne.modeler.action.CutAttributeRelationshipAction;
 import org.apache.cayenne.modeler.action.PasteAction;
 import org.apache.cayenne.modeler.action.RemoveAttributeRelationshipAction;
+import org.apache.cayenne.modeler.dialog.HolderRealtionshipChanges;
 import org.apache.cayenne.modeler.dialog.ResolveDbRelationshipDialog;
 import org.apache.cayenne.modeler.dialog.ResolveDbRelationshipDialogNextPrev;
 import org.apache.cayenne.modeler.event.DbEntityDisplayListener;
@@ -62,6 +63,7 @@ import javax.swing.table.TableColumn;
 import java.awt.BorderLayout;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.util.LinkedList;
 import java.util.List;
 
 /**
@@ -139,10 +141,10 @@ public class DbEntityRelationshipPanel extends JPanel implements DbEntityDisplay
                 if (row < 0) {
                     return;
                 }
-
-                ResolveDbRelationshipDialogNextPrev dialog = new ResolveDbRelationshipDialogNextPrev(table, row);
-                dialog.setVisible(true);
-                dialog.dispose();
+                HolderRealtionshipChanges rel = new HolderRealtionshipChanges(table,row);
+                //ResolveDbRelationshipDialogNextPrev dialog = new ResolveDbRelationshipDialogNextPrev(table, row);
+                //dialog.setVisible(true);
+                //dialog.dispose();
             }
         };
         resolveMenu.addActionListener(resolver);

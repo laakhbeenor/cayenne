@@ -68,13 +68,14 @@ import com.jgoodies.forms.layout.FormLayout;
  */
 public class ResolveDbRelationshipDialogNextPrev extends CayenneDialog {
 
+    protected InfoAboutRelationship relationshipInfo;
     protected DbRelationship relationship;
     protected DbRelationship reverseRelationship;
 
     protected JTextField name;
     protected JTextField reverseName;
     protected CayenneTable table;
-    protected CayenneTable tableInit;
+    protected HolderRealtionshipChanges holder;
     protected TableColumnPreferences tablePreferences;
     protected JButton addButton;
     protected JButton removeButton;
@@ -90,22 +91,24 @@ public class ResolveDbRelationshipDialogNextPrev extends CayenneDialog {
 
     private boolean editable = true;
 
-    public ResolveDbRelationshipDialogNextPrev(CayenneTable table, int row) {
-        this(table, row, true);
+    public ResolveDbRelationshipDialogNextPrev(HolderRealtionshipChanges holder, int row) {
+        this(holder, row, true);
     }
 
-    public ResolveDbRelationshipDialogNextPrev(CayenneTable table, int row, boolean editable) {
+    public ResolveDbRelationshipDialogNextPrev(HolderRealtionshipChanges holder, int row, boolean editable) {
         super(Application.getFrame(), "", true);
         this.editable = editable;
         this.row = row;
-        this.tableInit = table;
-        this.relationship = ((DbRelationshipTableModel)tableInit.getModel()).getRelationship(row);
+        this.holder = holder;
+        this.relationshipInfo = holder.getRelationshipInfo(row);
+        this.relationship = holder.getRelationship(row);
+        this.reverseRelationship = relationship.getReverseRelationship();
       
         initView();
         initController();
-        initWithModel(relationship);
+        initWithModel();
 
-        this.undo = new RelationshipUndoableEdit(relationship);
+        //this.undo = new RelationshipUndoableEdit(relationship);
 
         this.pack();
         this.centerWindow();
@@ -175,31 +178,31 @@ public class ResolveDbRelationshipDialogNextPrev extends CayenneDialog {
         }), BorderLayout.SOUTH);
     }
 
-    private void initWithModel(DbRelationship aRelationship) {
+    private void initWithModel() {
         // sanity check
-        if (aRelationship.getSourceEntity() == null) {
-            throw new CayenneRuntimeException("Null source entity: " + aRelationship);
+        if (relationship.getSourceEntity() == null) {
+            throw new CayenneRuntimeException("Null source entity: " + relationship);
         }
 
-        if (aRelationship.getTargetEntity() == null) {
-            throw new CayenneRuntimeException("Null target entity: " + aRelationship);
+        if (relationship.getTargetEntity() == null) {
+            throw new CayenneRuntimeException("Null target entity: " + relationship);
         }
 
-        if (aRelationship.getSourceEntity().getDataMap() == null) {
+        if (relationship.getSourceEntity().getDataMap() == null) {
             throw new CayenneRuntimeException("Null DataMap: "
-                    + aRelationship.getSourceEntity());
+                    + relationship.getSourceEntity());
         }
 
         // Once assigned, can reference relationship directly. Would it be
         // OK to assign relationship at the very top of this method?
-        relationship = aRelationship;
-        reverseRelationship = relationship.getReverseRelationship();
+        //relationship = aRelationship;
+        //reverseRelationship = relationship.getReverseRelationship();
 
         // init UI components
         setTitle("DbRelationship Info: "
-                + relationship.getSourceEntity().getName()
+                + relationshipInfo.getSourceEntity()
                 + " to "
-                + relationship.getTargetEntityName());
+                + relationshipInfo.getTargetEntity());
 
         table.setModel(new DbJoinTableModel(relationship, getMediator(), this, true));
         TableColumn sourceColumn = table.getColumnModel().getColumn(
@@ -225,10 +228,10 @@ public class ResolveDbRelationshipDialogNextPrev extends CayenneDialog {
                 comboBox));
 
         if (reverseRelationship != null) {
-            reverseName.setText(reverseRelationship.getName());
+            reverseName.setText(relationshipInfo.getReverseRelationship());
         }
 
-        name.setText(relationship.getName());
+        name.setText(relationshipInfo.getName());
         tablePreferences.bind(table, null, null, null, DbJoinTableModel.SOURCE, true);
     }
 
@@ -267,6 +270,7 @@ public class ResolveDbRelationshipDialogNextPrev extends CayenneDialog {
                 cancelPressed = false;
 
                 if (editable) {
+                	saveChanges();
                     save();
                 }
 
@@ -285,10 +289,10 @@ public class ResolveDbRelationshipDialogNextPrev extends CayenneDialog {
         nextButton.addActionListener(new ActionListener() {
 
             public void actionPerformed(ActionEvent e) {
-            	if((row+1)<tableInit.getRowCount()){
+            	saveChanges();
+            	if((row+1)<holder.getRowCount()){
 	            	setVisible(false);
-	            	table.select(row+1);
-	            	ResolveDbRelationshipDialogNextPrev dialog = new ResolveDbRelationshipDialogNextPrev(tableInit,row+1);
+	            	ResolveDbRelationshipDialogNextPrev dialog = new ResolveDbRelationshipDialogNextPrev(holder,row+1);
 	                dialog.setVisible(true);
 	                dialog.dispose();
             	}
@@ -301,10 +305,11 @@ public class ResolveDbRelationshipDialogNextPrev extends CayenneDialog {
         prevButton.addActionListener(new ActionListener() {
 
             public void actionPerformed(ActionEvent e) {
+            	saveChanges();
             	if((row-1)>=0){
             		setVisible(false);
 	            	table.select(row-1);
-	            	ResolveDbRelationshipDialogNextPrev dialog = new ResolveDbRelationshipDialogNextPrev(tableInit,row-1);
+	            	ResolveDbRelationshipDialogNextPrev dialog = new ResolveDbRelationshipDialogNextPrev(holder,row-1);
 	                dialog.setVisible(true);
 	                dialog.dispose();
             	}
@@ -328,111 +333,121 @@ public class ResolveDbRelationshipDialogNextPrev extends CayenneDialog {
         }
     }
 
+    private void saveChanges(){
+    	 stopEditing();
+    	 String sourceEntityName = name.getText();
+         if (sourceEntityName.length() == 0) {
+             sourceEntityName = null;
+         }
+         
+         if (sourceEntityName == null) {
+             sourceEntityName = DefaultUniqueNameGenerator.generate(NameCheckers.dbRelationship, relationship.getSourceEntity());
+         }
+         
+         if (!validateName(relationship.getSourceEntity(), relationship, sourceEntityName)) {
+             return;
+         }
+         
+         relationshipInfo.setName(sourceEntityName);
+         
+         String targetEntityName = reverseName.getText().trim();
+         if (targetEntityName.length() == 0) {
+             targetEntityName = null;
+         }
+
+         if (targetEntityName == null) {
+             targetEntityName = DefaultUniqueNameGenerator.generate(NameCheckers.dbRelationship, relationship.getTargetEntity());
+         }
+         
+      // check if reverse name is valid
+         DbJoinTableModel model = (DbJoinTableModel) table.getModel();
+         boolean updatingReverse = model.getObjectList().size() > 0;
+
+         if (updatingReverse
+                 && !validateName(
+                         relationship.getTargetEntity(),
+                         reverseRelationship,
+                         targetEntityName)) {
+             return;
+         }
+         
+         relationshipInfo.setReverseName(targetEntityName);
+    }
+    
     private void save() {
-        stopEditing();
-
-        // extract names...
-        String sourceEntityName = name.getText();
-        if (sourceEntityName.length() == 0) {
-            sourceEntityName = null;
-        }
-
-        if (sourceEntityName == null) {
-            sourceEntityName = DefaultUniqueNameGenerator.generate(NameCheckers.dbRelationship, relationship.getSourceEntity());
-        }
-
-        if (!validateName(relationship.getSourceEntity(), relationship, sourceEntityName)) {
-            return;
-        }
-
-        String targetEntityName = reverseName.getText().trim();
-        if (targetEntityName.length() == 0) {
-            targetEntityName = null;
-        }
-
-        if (targetEntityName == null) {
-            targetEntityName = DefaultUniqueNameGenerator.generate(NameCheckers.dbRelationship, relationship.getTargetEntity());
-        }
-
-        // check if reverse name is valid
-        DbJoinTableModel model = (DbJoinTableModel) table.getModel();
-        boolean updatingReverse = model.getObjectList().size() > 0;
-
-        if (updatingReverse
-                && !validateName(
-                        relationship.getTargetEntity(),
-                        reverseRelationship,
-                        targetEntityName)) {
-            return;
-        }
-
+    	for(int i=0;i<holder.getRowCount();i++){
+    		DbRelationship oldRelationship = holder.getRelationship(i);
+    		InfoAboutRelationship relChange = holder.getRelationshipInfo(i);
         // handle name update
-        if (!Util.nullSafeEquals(sourceEntityName, relationship.getName())) {
-            String oldName = relationship.getName();
+        if (!Util.nullSafeEquals(relChange.getSourceEntity(), oldRelationship.getName())) {
+            String oldName = oldRelationship.getName();
             
-            relationship.setName(sourceEntityName);
+            oldRelationship.setName(relChange.getSourceEntity());
 
-            undo.addNameUndo(relationship, oldName, sourceEntityName);
+            undo.addNameUndo(oldRelationship, oldName, relChange.getSourceEntity());
 
             getMediator().fireDbRelationshipEvent(
-                    new RelationshipEvent(this, relationship, relationship
+                    new RelationshipEvent(this, oldRelationship, oldRelationship
                             .getSourceEntity(), oldName));
         }
-
+        
+        DbJoinTableModel model = (DbJoinTableModel) table.getModel();
+        
         model.commit();
 
         // check "to dep pk" setting,
         // maybe this is no longer valid
-        if (relationship.isToDependentPK() && !relationship.isValidForDepPk()) {
-            relationship.setToDependentPK(false);
+        if (oldRelationship.isToDependentPK() && !oldRelationship.isValidForDepPk()) {
+            oldRelationship.setToDependentPK(false);
         }
 
         // If new reverse DbRelationship was created, add it to the target
         // Don't create reverse with no joins - makes no sense...
-        if (updatingReverse) {
+        if (model.getObjectList().size() > 0) {
 
             // If didn't find anything, create reverseDbRel
-            if (reverseRelationship == null) {
-                reverseRelationship = new DbRelationship(targetEntityName);
-                reverseRelationship.setSourceEntity(relationship.getTargetEntity());
-                reverseRelationship.setTargetEntityName(relationship.getSourceEntity());
-                reverseRelationship.setToMany(!relationship.isToMany());
-                relationship.getTargetEntity().addRelationship(reverseRelationship);
+        	DbRelationship oldReverseRelationship = oldRelationship.getReverseRelationship();
+            if (oldReverseRelationship == null) {
+                oldReverseRelationship = new DbRelationship(relChange.getTargetEntity());
+                oldReverseRelationship.setSourceEntity(oldRelationship.getTargetEntity());
+                oldReverseRelationship.setTargetEntityName(oldRelationship.getSourceEntity());
+                oldReverseRelationship.setToMany(!oldRelationship.isToMany());
+                oldRelationship.getTargetEntity().addRelationship(oldReverseRelationship);
 
                 // fire only if the relationship is to the same entity...
                 // this is needed to update entity view...
-                if (relationship.getSourceEntity() == relationship.getTargetEntity()) {
+                if (oldRelationship.getSourceEntity() == oldRelationship.getTargetEntity()) {
                     getMediator().fireDbRelationshipEvent(
                             new RelationshipEvent(
                                     this,
-                                    reverseRelationship,
-                                    reverseRelationship.getSourceEntity(),
+                                    oldReverseRelationship,
+                                    oldReverseRelationship.getSourceEntity(),
                                     MapEvent.ADD));
                 }
             }
             else if (!Util
-                    .nullSafeEquals(targetEntityName, reverseRelationship.getName())) {
+                    .nullSafeEquals(relChange.getTargetEntity(), oldReverseRelationship.getName())) {
 
-                String oldName = reverseRelationship.getName();
+                String oldName = oldReverseRelationship.getName();
                 
-                reverseRelationship.setName(targetEntityName);
+                oldReverseRelationship.setName(relChange.getTargetEntity());
 
-                undo.addNameUndo(reverseRelationship, oldName, targetEntityName);
+                undo.addNameUndo(oldReverseRelationship, oldName, relChange.getTargetEntity());
 
                 getMediator().fireDbRelationshipEvent(
                         new RelationshipEvent(
                                 this,
-                                reverseRelationship,
-                                reverseRelationship.getSourceEntity(),
+                                oldReverseRelationship,
+                                oldReverseRelationship.getSourceEntity(),
                                 oldName));
             }
 
-            Collection reverseJoins = getReverseJoins();
-            reverseRelationship.setJoins(reverseJoins);
+            Collection reverseJoins = getReverseJoins(oldRelationship);
+            oldReverseRelationship.setJoins(reverseJoins);
 
             // check if joins map to a primary key of this entity
-            if (!relationship.isToDependentPK() && reverseRelationship.isValidForDepPk()) {
-                reverseRelationship.setToDependentPK(true);
+            if (!oldRelationship.isToDependentPK() && oldReverseRelationship.isValidForDepPk()) {
+                oldReverseRelationship.setToDependentPK(true);
             }
         }
 
@@ -440,8 +455,9 @@ public class ResolveDbRelationshipDialogNextPrev extends CayenneDialog {
 
         getMediator()
                 .fireDbRelationshipEvent(
-                        new RelationshipEvent(this, relationship, relationship
+                        new RelationshipEvent(this, oldRelationship, oldRelationship
                                 .getSourceEntity()));
+    	}
     }
 
     private boolean validateName(Entity entity, Relationship aRelationship, String newName) {
@@ -458,7 +474,7 @@ public class ResolveDbRelationshipDialogNextPrev extends CayenneDialog {
         return true;
     }
 
-    private Collection getReverseJoins() {
+    private Collection getReverseJoins(DbRelationship relationship) {
         Collection<DbJoin> joins = relationship.getJoins();
 
         if ((joins == null) || (joins.size() == 0)) {
